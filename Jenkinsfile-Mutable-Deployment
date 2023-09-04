@@ -1,0 +1,43 @@
+pipeline {
+  agent any
+
+  parameters {
+    choice(name: 'ENVIRONMENT', choices: ['dev', 'prod'], description: 'Choose the environment to deploy')
+    string(name: 'COMPONENT', defaultValue: '', description: 'Which Micro Service component need to deploy')
+    string(name: 'APP_VERSION', defaultValue: '', description: 'Which Application Version need to deploy')
+  }
+
+  stages {
+
+    stage('Validate Application Version') {
+      steps {
+        script {
+          addShortText background: 'yellow', color: 'black', borderColor: 'yellow', text: "${COMPONENT}"
+          addShortText background: 'yellow', color: 'black', borderColor: 'yellow', text: "${APP_VERSION}"
+          addShortText background: 'orange', color: 'black', borderColor: 'yellow', text: "${ENVIRONMENT}"
+        }
+        sh """
+          curl -s -u admin:hameed http://172.31.82.132:8081/service/rest/repository/browse/${COMPONENT}/ | grep "${COMPONENT}-${APP_VERSION}"
+        """
+      }
+    }
+
+    stage('Get the list of Servers') {
+      steps {
+        sh '''
+          aws ec2 describe-instances --filters "Name=tag:Name,Values=${COMPONENT}-${ENVIRONMENT}" | jq .Reservations[].Instances[].PrivateIpAddress | sed -e 's/"//g' >inv-${COMPONENT}-${ENVIRONMENT}
+        '''
+      }
+    }
+
+    stage('Deploy to Servers') {
+      steps {
+        git branch: 'main', url: 'https://github.com/hameedmomin/ansible'
+        sh '''
+          ansible-playbook -i inv-${COMPONENT}-${ENVIRONMENT} roboshop-mutable.yml -t ${COMPONENT} -e ENV=${ENVIRONMENT} -e COMPONENT=${COMPONENT}  -e APP_VERSION=${APP_VERSION} -e ansible_user=centos -e ansible_password=DevOps321
+        '''
+      }
+    }
+
+  }
+  }
